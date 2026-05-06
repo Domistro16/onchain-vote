@@ -1,0 +1,35 @@
+{
+  "name": "onchain-vote",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "compile": "hardhat compile",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:bsc-testnet": "hardhat run scripts/deploy.ts --network bscTestnet"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.100.9",
+    "@vitejs/plugin-react": "^5.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "viem": "^2.48.8",
+    "vite": "^6.0.0",
+    "wagmi": "^3.6.9"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.13.5",
+    "hardhat": "^2.22.17",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}
