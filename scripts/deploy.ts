@@ -1,11 +1,13 @@
-import { ethers } from "hardhat";
+import hardhat from "hardhat";
+
+const { ethers } = hardhat;
 
 async function main() {
-  const OnchainVoting = await ethers.getContractFactory("OnchainVoting");
-  const voting = await OnchainVoting.deploy();
-  await voting.waitForDeployment();
+  const VotingFactory = await ethers.getContractFactory("VotingFactory");
+  const factory = await VotingFactory.deploy();
+  await factory.waitForDeployment();
 
-  console.log(`OnchainVoting deployed to: ${await voting.getAddress()}`);
+  console.log(`VotingFactory deployed to: ${await factory.getAddress()}`);
 }
 
 main().catch((error) => {

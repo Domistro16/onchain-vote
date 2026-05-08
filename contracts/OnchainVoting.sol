@@ -12,7 +12,22 @@ contract OnchainVoting {
         address creator;
     }
 
+    struct ProposalDetails {
+        string title;
+        string description;
+        string[] options;
+        uint256[] voteCounts;
+        uint256 deadline;
+        bool closed;
+        address creator;
+        uint256 totalVotes;
+        bool quorumReached;
+        uint256 winningIndex;
+        string winningOption;
+    }
+
     address public owner;
+    uint256 public quorum = 2;
     mapping(address => bool) public isMember;
     Proposal[] private proposals;
     mapping(uint256 => mapping(address => bool)) public hasVoted;
@@ -22,6 +37,7 @@ contract OnchainVoting {
     event ProposalCreated(uint256 indexed proposalId, string title, uint256 deadline);
     event VoteCast(uint256 indexed proposalId, address indexed voter, uint256 optionIndex);
     event ProposalClosed(uint256 indexed proposalId);
+    event QuorumUpdated(uint256 quorum);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
@@ -33,10 +49,16 @@ contract OnchainVoting {
         _;
     }
 
-    constructor() {
-        owner = msg.sender;
-        isMember[msg.sender] = true;
-        emit MemberAdded(msg.sender);
+    modifier proposalExists(uint256 proposalId) {
+        require(proposalId < proposals.length, "Proposal does not exist");
+        _;
+    }
+
+    constructor(address _owner) {
+        require(_owner != address(0), "Invalid owner");
+        owner = _owner;
+        isMember[_owner] = true;
+        emit MemberAdded(_owner);
     }
 
     function addMember(address account) external onlyOwner {
@@ -51,6 +73,12 @@ contract OnchainVoting {
         require(isMember[account], "Not a member");
         isMember[account] = false;
         emit MemberRemoved(account);
+    }
+
+    function setQuorum(uint256 newQuorum) external onlyOwner {
+        require(newQuorum > 0, "Quorum required");
+        quorum = newQuorum;
+        emit QuorumUpdated(newQuorum);
     }
 
     function createProposal(
@@ -79,7 +107,11 @@ contract OnchainVoting {
         emit ProposalCreated(proposalId, title, proposal.deadline);
     }
 
-    function vote(uint256 proposalId, uint256 optionIndex) external onlyMember {
+    function vote(uint256 proposalId, uint256 optionIndex)
+        external
+        onlyMember
+        proposalExists(proposalId)
+    {
         Proposal storage proposal = proposals[proposalId];
         require(!proposal.closed, "Proposal closed");
         require(block.timestamp < proposal.deadline, "Voting ended");
@@ -92,13 +124,14 @@ contract OnchainVoting {
         emit VoteCast(proposalId, msg.sender, optionIndex);
     }
 
-    function closeProposal(uint256 proposalId) external {
+    function closeProposal(uint256 proposalId) external proposalExists(proposalId) {
         Proposal storage proposal = proposals[proposalId];
         require(
             msg.sender == owner || msg.sender == proposal.creator,
             "Only owner or creator"
         );
         require(!proposal.closed, "Already closed");
+        require(block.timestamp >= proposal.deadline, "Voting still active");
 
         proposal.closed = true;
         emit ProposalClosed(proposalId);
@@ -111,6 +144,7 @@ contract OnchainVoting {
     function getProposal(uint256 proposalId)
         external
         view
+        proposalExists(proposalId)
         returns (
             string memory title,
             string memory description,
@@ -129,11 +163,85 @@ contract OnchainVoting {
         );
     }
 
-    function getOptions(uint256 proposalId) external view returns (string[] memory) {
+    function getOptions(uint256 proposalId)
+        external
+        view
+        proposalExists(proposalId)
+        returns (string[] memory)
+    {
         return proposals[proposalId].options;
     }
 
-    function getVoteCounts(uint256 proposalId) external view returns (uint256[] memory) {
+    function getVoteCounts(uint256 proposalId)
+        external
+        view
+        proposalExists(proposalId)
+        returns (uint256[] memory)
+    {
         return proposals[proposalId].voteCounts;
+    }
+
+    function getTotalVotes(uint256 proposalId)
+        public
+        view
+        proposalExists(proposalId)
+        returns (uint256 totalVotes)
+    {
+        uint256[] storage counts = proposals[proposalId].voteCounts;
+        for (uint256 i = 0; i < counts.length; i++) {
+            totalVotes += counts[i];
+        }
+    }
+
+    function hasReachedQuorum(uint256 proposalId)
+        public
+        view
+        proposalExists(proposalId)
+        returns (bool)
+    {
+        return getTotalVotes(proposalId) >= quorum;
+    }
+
+    function getWinner(uint256 proposalId)
+        public
+        view
+        proposalExists(proposalId)
+        returns (uint256 winningIndex, string memory winningOption)
+    {
+        Proposal storage proposal = proposals[proposalId];
+        uint256 highest = 0;
+
+        for (uint256 i = 0; i < proposal.voteCounts.length; i++) {
+            if (proposal.voteCounts[i] > highest) {
+                highest = proposal.voteCounts[i];
+                winningIndex = i;
+            }
+        }
+
+        winningOption = proposal.options[winningIndex];
+    }
+
+    function getFullProposal(uint256 proposalId)
+        external
+        view
+        proposalExists(proposalId)
+        returns (ProposalDetails memory details)
+    {
+        Proposal storage proposal = proposals[proposalId];
+        (uint256 winningIndex, string memory winningOption) = getWinner(proposalId);
+
+        details = ProposalDetails({
+            title: proposal.title,
+            description: proposal.description,
+            options: proposal.options,
+            voteCounts: proposal.voteCounts,
+            deadline: proposal.deadline,
+            closed: proposal.closed,
+            creator: proposal.creator,
+            totalVotes: getTotalVotes(proposalId),
+            quorumReached: hasReachedQuorum(proposalId),
+            winningIndex: winningIndex,
+            winningOption: winningOption
+        });
     }
 }
