@@ -149,6 +149,22 @@ function formatDeadline(timestamp: number) {
   }).format(new Date(timestamp * 1000));
 }
 
+function formatCountdown(timestamp: number, nowMs: number) {
+  const diffSeconds = Math.max(0, Math.floor((timestamp * 1000 - nowMs) / 1000));
+
+  if (diffSeconds <= 0) return "Deadline reached";
+
+  const days = Math.floor(diffSeconds / 86400);
+  const hours = Math.floor((diffSeconds % 86400) / 3600);
+  const minutes = Math.floor((diffSeconds % 3600) / 60);
+  const seconds = diffSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 function extractErrorText(error: unknown) {
   const parts: string[] = [];
 
@@ -273,8 +289,8 @@ function normalizeProposal(id: number, proposal: FullProposalRead, hasVoted: boo
   };
 }
 
-function getProposalStatus(proposal: Proposal) {
-  const deadlinePassed = proposal.deadline * 1000 <= Date.now();
+function getProposalStatus(proposal: Proposal, nowMs: number) {
+  const deadlinePassed = proposal.deadline * 1000 <= nowMs;
   if (proposal.closed) return { label: "Finalized", tone: "neutral" };
   if (deadlinePassed) return { label: "Ready to finalize", tone: "warning" };
   return { label: "Open", tone: "success" };
@@ -419,6 +435,7 @@ function App() {
   const [memberAddress, setMemberAddress] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const normalizedAccount = account?.toLowerCase() ?? "";
   const isOwner = Boolean(owner) && owner.toLowerCase() === normalizedAccount;
@@ -569,6 +586,17 @@ function App() {
     setOrganisationName("");
     setProposals([]);
   }, [account]);
+
+  useEffect(() => {
+    const hasActiveDeadline = proposals.some(
+      (proposal) => !proposal.closed && proposal.deadline * 1000 > Date.now()
+    );
+
+    if (!hasActiveDeadline) return;
+
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, [proposals]);
 
   useEffect(() => {
     const invitedName = new URLSearchParams(window.location.search).get("org")?.trim();
@@ -876,13 +904,13 @@ function App() {
   );
 
   const activeVotes = proposals.filter(
-    (proposal) => !proposal.closed && proposal.deadline * 1000 > Date.now()
+    (proposal) => !proposal.closed && proposal.deadline * 1000 > nowMs
   ).length;
   const endedVotes = proposals.filter(
-    (proposal) => proposal.closed || proposal.deadline * 1000 <= Date.now()
+    (proposal) => proposal.closed || proposal.deadline * 1000 <= nowMs
   ).length;
   const proposalsNeedingVote = proposals.filter(
-    (proposal) => !proposal.closed && proposal.deadline * 1000 > Date.now() && !proposal.hasVoted
+    (proposal) => !proposal.closed && proposal.deadline * 1000 > nowMs && !proposal.hasVoted
   );
   const trimmedProposalOptions = proposalForm.options.map((option) => option.trim()).filter(Boolean);
   const hasDuplicateProposalOptions =
@@ -890,7 +918,7 @@ function App() {
     trimmedProposalOptions.length;
   const proposalOptionsPreview = trimmedProposalOptions.length > 0 ? trimmedProposalOptions : ["Option preview"];
   const visibleProposals = proposals.filter((proposal) => {
-    const ended = proposal.closed || proposal.deadline * 1000 <= Date.now();
+    const ended = proposal.closed || proposal.deadline * 1000 <= nowMs;
     if (proposalFilter === "action") return !ended && !proposal.hasVoted;
     if (proposalFilter === "active") return !ended;
     if (proposalFilter === "ended") return ended;
@@ -1480,11 +1508,12 @@ function App() {
             ) : (
               <div className="grid gap-4">
                 {visibleProposals.map((proposal) => {
-                  const deadlinePassed = proposal.deadline * 1000 <= Date.now();
+                  const deadlinePassed = proposal.deadline * 1000 <= nowMs;
                   const isEnded = proposal.closed || deadlinePassed;
                   const canClose = !proposal.closed && deadlinePassed;
                   const canShowWinner = proposal.totalVotes > 0 && isEnded;
-                  const status = getProposalStatus(proposal);
+                  const status = getProposalStatus(proposal, nowMs);
+                  const countdown = formatCountdown(proposal.deadline, nowMs);
                   const voteDisabledReason = isWrongNetwork
                     ? "Switch to BSC Testnet before voting."
                     : !isMember
@@ -1499,7 +1528,7 @@ function App() {
                     : isWrongNetwork
                       ? "Switch to BSC Testnet before finalizing."
                       : !deadlinePassed
-                        ? `Available after deadline: ${formatDeadline(proposal.deadline)}.`
+                        ? `Available after deadline: ${formatDeadline(proposal.deadline)} (${countdown} remaining).`
                         : !isOwner && proposal.creator.toLowerCase() !== normalizedAccount
                           ? "Only the owner or proposal creator can finalize this vote."
                           : "";
@@ -1525,18 +1554,32 @@ function App() {
                             </span>
                             <h3 className="mt-1 font-serif text-3xl font-bold leading-tight text-[#fff8df]">{proposal.title}</h3>
                           </div>
-                          <span
-                            className={`inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold uppercase ${
-                              status.tone === "success"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : status.tone === "warning"
-                                  ? "bg-amber-50 text-amber-700"
-                                  : "bg-[#252d21] text-[#aeb6a3]"
-                            }`}
-                          >
-                            {isEnded ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
-                            {status.label}
-                          </span>
+                          <div className="flex flex-wrap gap-2 sm:justify-end">
+                            <span
+                              className={`inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold uppercase ${
+                                status.tone === "success"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : status.tone === "warning"
+                                    ? "bg-amber-50 text-amber-700"
+                                    : "bg-[#252d21] text-[#aeb6a3]"
+                              }`}
+                            >
+                              {isEnded ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
+                              {status.label}
+                            </span>
+                            {!proposal.closed && (
+                              <span
+                                className={`inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-extrabold uppercase ${
+                                  deadlinePassed
+                                    ? "border border-[#ffd166]/50 bg-[#ffd166]/12 text-[#ffd166]"
+                                    : "border border-[#d8ff64]/40 bg-[#d8ff64]/10 text-[#d8ff64]"
+                                }`}
+                              >
+                                <Clock3 size={14} />
+                                {deadlinePassed ? "Deadline reached" : `Ends in ${countdown}`}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <p className="mb-4 text-sm font-medium leading-6 text-[#b8bea9]">{proposal.description}</p>
